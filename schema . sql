@@ -1,0 +1,123 @@
+-- 1. User profiles table (linked to Supabase Auth users)
+CREATE TABLE public.profiles (
+  id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
+  email TEXT NOT NULL,
+  full_name TEXT,
+  avatar_url TEXT,
+  address TEXT,
+  preferred_currency TEXT DEFAULT 'USD' NOT NULL,
+  role TEXT DEFAULT 'user' NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+-- 2. User balances table (admin-locked updates)
+CREATE TABLE public.balances (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE UNIQUE NOT NULL,
+  amount NUMERIC(12, 2) DEFAULT 0.00 NOT NULL,
+  currency TEXT DEFAULT 'USD' NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+-- 3. Withdrawal requests table (PayPal, Bitcoin, etc.)
+CREATE TABLE public.withdrawal_requests (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  amount NUMERIC(12, 2) NOT NULL CHECK (amount > 0),
+  currency TEXT DEFAULT 'USD' NOT NULL,
+  payout_method TEXT NOT NULL,
+  payout_destination TEXT NOT NULL,
+  status TEXT DEFAULT 'pending' NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+-- 4. Isolated withdrawal PIN hashes table
+CREATE TABLE public.user_pins (
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE PRIMARY KEY,
+  pin_hash TEXT NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+-- 5. Helper function to check if current user is an admin
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE id = auth.uid() AND role = 'admin'
+  );
+$$;
+
+-- 6. Automatically create profile and zero balance when a new user signs up
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, full_name)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    COALESCE(NEW.raw_user_meta_data->>'full_name', '')
+  );
+
+  INSERT INTO public.balances (user_id, amount, currency)
+  VALUES (NEW.id, 0.00, 'USD');
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- 7. Enable Row Level Security (RLS) on all tables
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.balances ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.withdrawal_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_pins ENABLE ROW LEVEL SECURITY;
+
+-- 8. Profiles RLS policies
+CREATE POLICY "Users can view own profile or admin views all"
+  ON public.profiles FOR SELECT
+  USING (auth.uid() = id OR public.is_admin());
+
+CREATE POLICY "Users can update own profile"
+  ON public.profiles FOR UPDATE
+  USING (auth.uid() = id)
+  WITH CHECK (auth.uid() = id);
+
+-- 9. Balances RLS policies
+CREATE POLICY "Users can view own balance or admin views all"
+  ON public.balances FOR SELECT
+  USING (auth.uid() = user_id OR public.is_admin());
+
+CREATE POLICY "Only admins can insert balances"
+  ON public.balances FOR INSERT
+  WITH CHECK (public.is_admin());
+
+CREATE POLICY "Only admins can update balances"
+  ON public.balances FOR UPDATE
+  USING (public.is_admin())
+  WITH CHECK (public.is_admin());
+
+-- 10. Withdrawal requests RLS policies
+CREATE POLICY "Users can view own withdrawals or admin views all"
+  ON public.withdrawal_requests FOR SELECT
+  USING (auth.uid() = user_id OR public.is_admin());
+
+CREATE POLICY "Users can create own pending withdrawal request"
+  ON public.withdrawal_requests FOR INSERT
+  WITH CHECK (auth.uid() = user_id AND status = 'pending');
+
+CREATE POLICY "Only admins can update withdrawal status"
+  ON public.withdrawal_requests FOR UPDATE
+  USING (public.is_admin())
+  WITH CHECK (public.is_admin());
