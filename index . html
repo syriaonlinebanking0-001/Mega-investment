@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mega Investment</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --accent: #10b981;
+      --danger: #ef4444;
+      --border: #334155;
+    }
+    * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+    body { margin: 0; background: var(--bg); color: var(--text); padding: 16px; }
+    .container { max-width: 720px; margin: 0 auto; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+    h1, h2, h3 { margin-top: 0; }
+    .muted { color: var(--muted); font-size: 0.9rem; }
+    input, select, button {
+      width: 100%; padding: 10px 12px; margin-top: 6px; margin-bottom: 12px;
+      border-radius: 8px; border: 1px solid var(--border); background: #0f172a; color: var(--text);
+    }
+    button { background: var(--accent); color: #052e16; font-weight: 700; border: none; cursor: pointer; }
+    button.secondary { background: #334155; color: var(--text); }
+    button.danger { background: var(--danger); color: #fff; }
+    .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .balance-amt { font-size: 2rem; font-weight: 800; color: var(--accent); }
+    .badge { padding: 4px 10px; border-radius: 999px; font-size: 0.78rem; background: #334155; }
+    .hidden { display: none; }
+    .msg { padding: 10px; border-radius: 8px; margin-bottom: 12px; font-size: 0.9rem; }
+    .msg.ok { background: rgba(16, 185, 129, 0.15); border: 1px solid var(--accent); }
+    .msg.err { background: rgba(239, 68, 68, 0.15); border: 1px solid var(--danger); }
+    .list-item { border-top: 1px solid var(--border); padding: 10px 0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card row">
+      <div>
+        <h1>Mega Investment</h1>
+        <div id="lang-label" class="muted">Secure Personal Finance Dashboard</div>
+      </div>
+      <div class="row" style="gap: 8px;">
+        <select id="lang-select" style="width: auto; margin: 0;">
+          <option value="en">English</option>
+          <option value="ja">日本語 (Japanese)</option>
+          <option value="ko">한국어 (Korean)</option>
+        </select>
+        <button id="logout-btn" class="secondary hidden" style="width: auto; margin: 0;">Sign Out</button>
+      </div>
+    </div>
+
+    <div id="status-box" class="msg hidden"></div>
+
+    <!-- AUTH SECTION -->
+    <div id="auth-section" class="card">
+      <h2>Account Access</h2>
+      <p class="muted">Sign in or create an account with email and password.</p>
+      <label>Full Name (for new accounts)</label>
+      <input id="auth-name" type="text" placeholder="Your full name" />
+      <label>Email</label>
+      <input id="auth-email" type="email" placeholder="you@example.com" />
+      <label>Password</label>
+      <input id="auth-password" type="password" placeholder="Password" />
+      <div class="row">
+        <button id="login-btn" style="flex: 1;">Sign In</button>
+        <button id="signup-btn" class="secondary" style="flex: 1;">Sign Up</button>
+      </div>
+    </div>
+
+    <!-- APP SECTION -->
+    <div id="app-section" class="hidden">
+      <!-- BALANCE CARD -->
+      <div class="card">
+        <div class="row">
+          <div>
+            <div class="muted">Available Balance (Admin Managed)</div>
+            <div id="balance-display" class="balance-amt">0.00 USD</div>
+            <div id="balance-sub" class="muted"></div>
+          </div>
+          <span id="role-badge" class="badge">user</span>
+        </div>
+      </div>
+
+      <!-- WITHDRAWAL CARD -->
+      <div class="card">
+        <h3>Request Withdrawal (PIN Required)</h3>
+        <label>Method</label>
+        <select id="wd-method">
+          <option value="paypal">PayPal</option>
+          <option value="bitcoin">Bitcoin Wallet</option>
+        </select>
+        <label>Destination (PayPal Email or Bitcoin Address)</label>
+        <input id="wd-dest" type="text" placeholder="you@paypal.com or bc1q..." />
+        <label>Amount (in account base currency)</label>
+        <input id="wd-amount" type="number" step="0.01" min="0.01" placeholder="0.00" />
+        <label>Security PIN</label>
+        <input id="wd-pin" type="password" maxlength="8" placeholder="Enter your PIN" />
+        <button id="wd-submit">Submit Withdrawal Request</button>
+        <div id="wd-history"></div>
+      </div>
+
+      <!-- SET / UPDATE PIN CARD -->
+      <div class="card">
+        <h3>Security PIN</h3>
+        <p class="muted">Set or update the PIN required to authorize withdrawal requests.</p>
+        <label>New PIN (4–8 digits)</label>
+        <input id="new-pin" type="password" maxlength="8" placeholder="e.g. 1234" />
+        <button id="save-pin-btn" class="secondary">Save PIN</button>
+      </div>
+
+      <!-- PROFILE CARD -->
+      <div class="card">
+        <h3>Profile Details</h3>
+        <label>Full Name</label>
+        <input id="prof-name" type="text" />
+        <label>Address</label>
+        <input id="prof-address" type="text" />
+        <label>Avatar / Photo URL</label>
+        <input id="prof-avatar" type="text" placeholder="https://..." />
+        <label>Preferred Display Currency (55+ World Currencies)</label>
+        <select id="prof-currency" class="currency-select"></select>
+        <button id="save-profile-btn" class="secondary">Update Profile</button>
+      </div>
+
+      <!-- ADMIN SECTION -->
+      <div id="admin-section" class="card hidden">
+        <h2>Admin Controls</h2>
+        <h3>Set User Balance & Currency</h3>
+        <label>Target User ID (UUID)</label>
+        <input id="adm-user-id" type="text" placeholder="User UUID from profiles" />
+        <label>Balance Amount</label>
+        <input id="adm-amount" type="number" step="0.01" placeholder="100.00" />
+        <label>Account Currency</label>
+        <select id="adm-currency" class="currency-select"></select>
+        <button id="adm-balance-btn">Update Balance</button>
+
+        <h3 style="margin-top: 20px;">Withdrawal Requests</h3>
+        <div id="admin-withdrawals"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const SUPABASE_URL = 'https://hhilbqgaqpxzdllwvflm.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_Nt4v-ZEk3VyrlS5RRTVNAw_gsHaqZo-';
+    const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    const CURRENCY_GROUPS = {
+      'Asian Currencies': [
+        ['JPY', 'Japanese Yen'], ['KRW', 'South Korean Won'], ['CNY', 'Chinese Yuan'],
+        ['INR', 'Indian Rupee'], ['IDR', 'Indonesian Rupiah'], ['MYR', 'Malaysian Ringgit'],
+        ['THB', 'Thai Baht'], ['PHP', 'Philippine Peso'], ['VND', 'Vietnamese Dong'],
+        ['SGD', 'Singapore Dollar'], ['HKD', 'Hong Kong Dollar'], ['TWD', 'New Taiwan Dollar'],
+        ['PKR', 'Pakistani Rupee'], ['BDT', 'Bangladeshi Taka'], ['LKR', 'Sri Lankan Rupee'],
+        ['NPR', 'Nepalese Rupee'], ['KHR', 'Cambodian Riel'], ['LAK', 'Lao Kip'],
+        ['MMK', 'Myanmar Kyat'], ['MNT', 'Mongolian Tugrik'], ['KZT', 'Kazakhstani Tenge'],
+        ['UZS', 'Uzbekistani Som'], ['AED', 'UAE Dirham'], ['SAR', 'Saudi Riyal'],
+        ['QAR', 'Qatari Riyal'], ['KWD', 'Kuwaiti Dinar'], ['BHD', 'Bahraini Dinar'],
+        ['OMR', 'Omani Rial'], ['ILS', 'Israeli New Shekel'], ['JOD', 'Jordanian Dinar']
+      ],
+      'European Currencies': [
+        ['EUR', 'Euro'], ['GBP', 'British Pound Sterling'], ['CHF', 'Swiss Franc'],
+        ['SEK', 'Swedish Krona'], ['NOK', 'Norwegian Krone'], ['DKK', 'Danish Krone'],
+        ['PLN', 'Polish Zloty'], ['CZK', 'Czech Koruna'], ['HUF', 'Hungarian Forint'],
+        ['RON', 'Romanian Leu'], ['ISK', 'Icelandic Krona'], ['ALL', 'Albanian Lek'],
+        ['BAM', 'Bosnia-Herzegovina Mark'], ['MKD', 'Macedonian Denar'], ['RSD', 'Serbian Dinar'],
+        ['MDL', 'Moldovan Leu'], ['UAH', 'Ukrainian Hryvnia'], ['GEL', 'Georgian Lari'],
+        ['TRY', 'Turkish Lira']
+      ],
+      'South American Currencies': [
+        ['BRL', 'Brazilian Real'], ['ARS', 'Argentine Peso'], ['CLP', 'Chilean Peso'],
+        ['COP', 'Colombian Peso'], ['PEN', 'Peruvian Sol'], ['BOB', 'Bolivian Boliviano'],
+        ['PYG', 'Paraguayan Guarani'], ['UYU', 'Uruguayan Peso'], ['GYD', 'Guyanese Dollar'],
+        ['SRD', 'Surinamese Dollar']
+      ],
+      'Other Global & African Currencies': [
+        ['USD', 'US Dollar'], ['CAD', 'Canadian Dollar'], ['AUD', 'Australian Dollar'],
+        ['NZD', 'New Zealand Dollar'], ['NGN', 'Nigerian Naira'], ['ZAR', 'South African Rand'],
+        ['KES', 'Kenyan Shilling'], ['GHS', 'Ghanaian Cedi'], ['EGP', 'Egyptian Pound'],
+        ['MAD', 'Moroccan Dirham'], ['TZS', 'Tanzanian Shilling'], ['UGX', 'Ugandan Shilling'],
+        ['RWF', 'Rwandan Franc'], ['ETB', 'Ethiopian Birr'], ['BWP', 'Botswana Pula'],
+        ['ZMW', 'Zambian Kwacha']
+      ]
+    };
+
+    // Fallback rates relative to 1 USD if live FX endpoint is unreachable
+    const FALLBACK_USD_RATES = {
+      USD: 1, EUR: 0.92, GBP: 0.79, CHF: 0.88, JPY: 154, KRW: 1380, CNY: 7.24,
+      INR: 84, IDR: 15800, MYR: 4.45, THB: 34.5, PHP: 58.5, VND: 25400,
+      SGD: 1.34, HKD: 7.78, TWD: 32.5, PKR: 278, BDT: 119, LKR: 292, NPR: 134,
+      KHR: 4070, LAK: 21900, MMK: 2100, MNT: 3410, KZT: 492, UZS: 12800,
+      AED: 3.67, SAR: 3.75, QAR: 3.64, KWD: 0.31, BHD: 0.38, OMR: 0.38, ILS: 3.72, JOD: 0.71,
+      SEK: 10.6, NOK: 10.9, DKK: 6.87, PLN: 4.02, CZK: 23.3, HUF: 375, RON: 4.58,
+      ISK: 138, ALL: 92, BAM: 1.80, MKD: 56.6, RSD: 107.7, MDL: 17.8, UAH: 41.3,
+      GEL: 2.72, TRY: 34.5,
+      BRL: 5.80, ARS: 1000, CLP: 970, COP: 4380, PEN: 3.76, BOB: 6.91, PYG: 7850,
+      UYU: 42.5, GYD: 209, SRD: 33.5,
+      CAD: 1.39, AUD: 1.53, NZD: 1.70, NGN: 1650, ZAR: 18.0, KES: 129, GHS: 16.5,
+      EGP: 49.3, MAD: 9.95, TZS: 2680, UGX: 3670, RWF: 1370, ETB: 122, BWP: 13.6, ZMW: 27.2
+    };
+
+    let fxRatesFromUSD = { ...FALLBACK_USD_RATES };
+
+    function populateCurrencyDropdowns() {
+      document.querySelectorAll('.currency-select').forEach(select => {
+        select.innerHTML = '';
+        Object.entries(CURRENCY_GROUPS).forEach(([groupName, items]) => {
+          const optgroup = document.createElement('optgroup');
+          optgroup.label = groupName;
+          items.forEach(([code, label]) => {
+            const opt = document.createElement('option');
+            opt.value = code;
+            opt.textContent = `${code} — ${label}`;
+            optgroup.appendChild(opt);
+          });
+          select.appendChild(optgroup);
+        });
+      });
+    }
+
+    async function refreshFxRates() {
+      try {
+        const res = await fetch('https://open.er-api.com/v6/latest/USD');
+        if (!res.ok) return;
+        const json = await res.json();
+        if (json && json.rates) {
+          fxRatesFromUSD = { ...FALLBACK_USD_RATES, ...json.rates };
+        }
+      } catch (_e) {
+        // Keep fallback rates
+      }
+    }
+
+    function convertAmount(amount, fromCurr, toCurr) {
+      const val = Number(amount) || 0;
+      if (!fromCurr || !toCurr || fromCurr === toCurr) return val;
+      const fromRate = fxRatesFromUSD[fromCurr];
+      const toRate = fxRatesFromUSD[toCurr];
+      if (!fromRate || !toRate) return val;
+      const inUsd = val / fromRate;
+      return inUsd * toRate;
+    }
+
+    populateCurrencyDropdowns();
+    refreshFxRates();
+
+    let currentUser = null;
+    let currentProfile = null;
+
+    const i18n = {
+      en: { title: 'Mega Investment', subtitle: 'Secure Personal Finance Dashboard' },
+      ja: { title: 'Mega Investment', subtitle: '安全な個人ファイナンスダッシュボード' },
+      ko: { title: 'Mega Investment', subtitle: '안전한 개인 금융 대시보드' }
+    };
+
+    function showMsg(text, isErr = false) {
+      const box = document.getElementById('status-box');
+      box.textContent = text;
+      box.className = `msg ${isErr ? 'err' : 'ok'}`;
+      box.classList.remove('hidden');
+    }
+
+    async function hashPin(pin) {
+      const enc = new TextEncoder().encode(pin);
+      const buf = await crypto.subtle.digest('SHA-256', enc);
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    function applyLanguage(lang) {
+      const t = i18n[lang] || i18n.en;
+      document.getElementById('lang-label').textContent = t.subtitle;
+    }
+
+    document.getElementById('lang-select').addEventListener('change', (e) => {
+      applyLanguage(e.target.value);
+    });
+
+    const browserLang = (navigator.language || 'en').slice(0, 2);
+    if (i18n[browserLang]) {
+      document.getElementById('lang-select').value = browserLang;
+      applyLanguage(browserLang);
+    }
+
+    document.getElementById('signup-btn').addEventListener('click', async () => {
+      const email = document.getElementById('auth-email').value.trim();
+      const password = document.getElementById('auth-password').value;
+      const full_name = document.getElementById('auth-name').value.trim();
+      const { error } = await sb.auth.signUp({
+        email, password, options: { data: { full_name } }
+      });
+      if (error) return showMsg(error.message, true);
+      showMsg('Account created! Check your email if confirmation is enabled, or sign in.');
+    });
+
+    document.getElementById('login-btn').addEventListener('click', async () => {
+      const email = document.getElementById('auth-email').value.trim();
+      const password = document.getElementById('auth-password').value;
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) return showMsg(error.message, true);
+      showMsg('Signed in successfully.');
+    });
+
+    document.getElementById('logout-btn').addEventListener('click', async () => {
+      await sb.auth.signOut();
+    });
+
+    document.getElementById('save-pin-btn').addEventListener('click', async () => {
+      const pin = document.getElementById('new-pin').value.trim();
+      if (!/^\d{4,8}$/.test(pin)) return showMsg('PIN must be 4 to 8 digits.', true);
+      const pin_hash = await hashPin(pin);
+      const { error } = await sb.from('user_pins').upsert({ user_id: currentUser.id, pin_hash });
+      if (error) return showMsg(error.message, true);
+      document.getElementById('new-pin').value = '';
+      showMsg('Security PIN saved.');
+    });
+
+    document.getElementById('save-profile-btn').addEventListener('click', async () => {
+      const updates = {
+        full_name: document.getElementById('prof-name').value.trim(),
+        address: document.getElementById('prof-address').value.trim(),
+        avatar_url: document.getElementById('prof-avatar').value.trim(),
+        preferred_currency: document.getElementById('prof-currency').value
+      };
+      const { error } = await sb.from('profiles').update(updates).eq('id', currentUser.id);
+      if (error) return showMsg(error.message, true);
+      showMsg('Profile updated.');
+      await loadDashboard();
+    });
+
+    document.getElementById('wd-submit').addEventListener('click', async () => {
+      const method = document.getElementById('wd-method').value;
+      const destination = document.getElementById('wd-dest').value.trim();
+      const amount = parseFloat(document.getElementById('wd-amount').value);
+      const pin = document.getElementById('wd-pin').value.trim();
+
+      if (!destination || !amount || amount <= 0 || !pin) {
+        return showMsg('Fill in method, destination, amount, and PIN.', true);
+      }
+
+      const { data: pinRow, error: pinErr } = await sb
+        .from('user_pins').select('pin_hash').eq('user_id', currentUser.id).single();
+      if (pinErr || !pinRow) return showMsg('Set your security PIN first.', true);
+
+      const enteredHash = await hashPin(pin);
+      if (enteredHash !== pinRow.pin_hash) return showMsg('Incorrect PIN.', true);
+
+      const { data: balRow } = await sb
+        .from('balances').select('amount, currency').eq('user_id', currentUser.id).single();
+      if (!balRow || Number(balRow.amount) < amount) {
+        return showMsg('Insufficient balance.', true);
+      }
+
+      const { error } = await sb.from('withdrawal_requests').insert({
+        user_id: currentUser.id,
+        amount,
+        currency: balRow.currency,
+        method,
+        destination
+      });
+      if (error) return showMsg(error.message, true);
+
+      document.getElementById('wd-dest').value = '';
+      document.getElementById('wd-amount').value = '';
+      document.getElementById('wd-pin').value = '';
+      showMsg('Withdrawal request submitted.');
+      await loadWithdrawals();
+    });
+
+    document.getElementById('adm-balance-btn').addEventListener('click', async () => {
+      const user_id = document.getElementById('adm-user-id').value.trim();
+      const amount = parseFloat(document.getElementById('adm-amount').value);
+      const currency = document.getElementById('adm-currency').value;
+      if (!user_id || isNaN(amount)) return showMsg('Enter valid user ID and amount.', true);
+
+      const { error } = await sb.from('balances').upsert(
+        { user_id, amount, currency, updated_at: new Date().toISOString() },
+        { onConflict: 'user_id' }
+      );
+      if (error) return showMsg(error.message, true);
+      showMsg('User balance updated.');
+      await loadDashboard();
+    });
+
+    async function setWithdrawalStatus(id, status) {
+      const { error } = await sb.from('withdrawal_requests').update({ status }).eq('id', id);
+      if (error) return showMsg(error.message, true);
+      showMsg(`Request marked as ${status}.`);
+      await loadAdminWithdrawals();
+    }
+
+    async function loadWithdrawals() {
+      const { data } = await sb
+        .from('withdrawal_requests')
+        .select('*')
+        .eq('user_id', currentUser.id)
+        .order('created_at', { ascending: false });
+
+      const prefCurr = currentProfile?.preferred_currency || 'USD';
+      const box = document.getElementById('wd-history');
+      if (!data || data.length === 0) {
+        box.innerHTML = '<p class="muted">No withdrawal requests yet.</p>';
+        return;
+      }
+      box.innerHTML = '<h4>Recent Requests</h4>' + data.map(r => {
+        const converted = convertAmount(r.amount, r.currency, prefCurr);
+        const convText = prefCurr !== r.currency
+          ? ` <span class="muted">(≈ ${converted.toFixed(2)} ${prefCurr})</span>`
+          : '';
+        return `
+          <div class="list-item row">
+            <div>
+              <strong>${r.method.toUpperCase()}</strong> — ${Number(r.amount).toFixed(2)} ${r.currency}${convText}<br/>
+              <span class="muted">${r.destination}</span>
+            </div>
+            <span class="badge">${r.status}</span>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function loadAdminWithdrawals() {
+      const { data } = await sb
+        .from('withdrawal_requests')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      const box = document.getElementById('admin-withdrawals');
+      if (!data || data.length === 0) {
+        box.innerHTML = '<p class="muted">No requests found.</p>';
+        return;
+      }
+      box.innerHTML = data.map(r => `
+        <div class="list-item">
+          <div><strong>User:</strong> ${r.user_id}</div>
+          <div><strong>Amount:</strong> ${r.amount} ${r.currency} (${r.method}) → ${r.destination}</div>
+          <div><strong>Status:</strong> <span class="badge">${r.status}</span></div>
+          <div class="row" style="margin-top: 8px;">
+            <button onclick="setWithdrawalStatus('${r.id}', 'approved')" style="flex: 1;">Approve</button>
+            <button onclick="setWithdrawalStatus('${r.id}', 'rejected')" class="danger" style="flex: 1;">Reject</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function loadDashboard() {
+      const { data: profile } = await sb
+        .from('profiles').selec
